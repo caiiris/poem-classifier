@@ -15,12 +15,14 @@ import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy import stats
+from scipy import stats, optimize
 import nltk
 
 CSV_PATH = "data/PoetryFoundationData_with_year.csv"
 CONCRETENESS_PATH = "data/concreteness_ratings.csv"
-PLOT_DIR = "data/plots"
+PLOT_DIR = "data/plots/preliminary"
+PLOT_DIR_DIST_TRY = "data/plots/dist try 1"
+PLOT_DIR_DIST_TRY_2 = "data/plots/dist try 2"
 
 ERA_BINS = [
     ("Pre-1800", -9999, 1800),
@@ -152,11 +154,90 @@ def rhyme_rate(lines: list[str], rd: dict) -> float:
     return rhymed / checked if checked else np.nan
 
 
-# ── main ──────────────────────────────────────────────────────────────────
+# ── ZOIB and zero-inflated Gamma (for dist try 2) ─────────────────────────
+
+def _zoib_nll(params: np.ndarray, x: np.ndarray) -> float:
+    """Negative log-likelihood for Zero-One-Inflated Beta. params = (l0, l1, log_a, log_b)."""
+    l0, l1, log_a, log_b = params
+    e0, e1 = np.exp(l0), np.exp(l1)
+    p0 = e0 / (1 + e0 + e1)
+    p1 = e1 / (1 + e0 + e1)
+    p_mid = 1 - p0 - p1
+    a, b = np.exp(log_a), np.exp(log_b)
+    n0 = np.sum(x == 0)
+    n1 = np.sum(x == 1)
+    mid = (x > 0) & (x < 1)
+    n_mid = np.sum(mid)
+    nll = 0.0
+    if n0 > 0:
+        nll -= n0 * np.log(np.clip(p0, 1e-12, 1))
+    if n1 > 0:
+        nll -= n1 * np.log(np.clip(p1, 1e-12, 1))
+    if n_mid > 0 and p_mid > 1e-12:
+        x_mid = x[mid]
+        nll -= n_mid * np.log(np.clip(p_mid, 1e-12, 1))
+        nll -= np.sum(stats.beta.logpdf(np.clip(x_mid, 1e-8, 1 - 1e-8), a, b))
+    if np.isnan(nll) or nll <= 0:
+        return 1e10
+    return nll
+
+
+def fit_zoib(x: np.ndarray) -> tuple[float, float, float, float] | None:
+    """Fit ZOIB. Returns (p0, p1, a, b) or None on failure."""
+    x = np.asarray(x, dtype=float)
+    n0, n1 = np.sum(x == 0), np.sum(x == 1)
+    mid = (x > 0) & (x < 1)
+    if np.sum(mid) < 2:
+        return None
+    # Initial: p0, p1 from empirical; a, b from Beta fit on (0,1) subset
+    p0_init = n0 / len(x)
+    p1_init = n1 / len(x)
+    x_mid = x[mid]
+    try:
+        a_init, b_init, _, _ = stats.beta.fit(np.clip(x_mid, 1e-6, 1 - 1e-6), floc=0, fscale=1)
+    except Exception:
+        a_init, b_init = 2.0, 2.0
+    l0_init = np.log(p0_init + 1e-6) - np.log(1 - p0_init - p1_init + 1e-6)
+    l1_init = np.log(p1_init + 1e-6) - np.log(1 - p0_init - p1_init + 1e-6)
+    try:
+        res = optimize.minimize(
+            _zoib_nll,
+            x0=[l0_init, l1_init, np.log(a_init), np.log(b_init)],
+            args=(x,),
+            method="L-BFGS-B",
+            bounds=[(-20, 20), (-20, 20), (-5, 10), (-5, 10)],
+        )
+        if not res.success:
+            return None
+        l0, l1, log_a, log_b = res.x
+        e0, e1 = np.exp(l0), np.exp(l1)
+        p0 = e0 / (1 + e0 + e1)
+        p1 = e1 / (1 + e0 + e1)
+        return (float(p0), float(p1), float(np.exp(log_a)), float(np.exp(log_b)))
+    except Exception:
+        return None
+
+
+def fit_zero_inflated_gamma(x: np.ndarray) -> tuple[float, float, float] | None:
+    """Fit zero-inflated Gamma: P(x=0)=p, and given x>0, x ~ Gamma(shape, scale). Returns (p, shape, scale) or None."""
+    x = np.asarray(x, dtype=float)
+    n0 = np.sum(x <= 0)
+    pos = x > 0
+    if np.sum(pos) < 2:
+        return None
+    p0 = n0 / len(x)
+    try:
+        shape, loc, scale = stats.gamma.fit(x[pos], floc=0)
+        return (float(p0), float(shape), float(scale))
+    except Exception:
+        return None
+
 
 def main():
     import os
     os.makedirs(PLOT_DIR, exist_ok=True)
+    os.makedirs(PLOT_DIR_DIST_TRY, exist_ok=True)
+    os.makedirs(PLOT_DIR_DIST_TRY_2, exist_ok=True)
 
     print("Loading resources...")
     lex = load_concreteness(CONCRETENESS_PATH)
@@ -164,12 +245,14 @@ def main():
     print(f"  Concreteness: {len(lex):,} words  |  CMU dict: {len(rd):,} words")
 
     df = pd.read_csv(CSV_PATH)
+    n_total = len(df)
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
     df = df[df["Year"].notna()].copy()
+    n_with_year = len(df)
     df["era"] = df["Year"].apply(assign_era)
     df = df[df["Poem"].apply(is_multiline)].copy()
     total = len(df)
-    print(f"Processing {total} multi-line poems...\n")
+    print(f"Processing {total} multi-line poems (dropped {n_total - n_with_year} without Year, {n_with_year - total} single-line; features need 2+ lines).\n")
 
     rows = []
     for i, (_, r) in enumerate(df.iterrows()):
@@ -193,6 +276,7 @@ def main():
     # ── print raw stats ───────────────────────────────────────────────────
     feats = ["cap_rate", "punct_rate", "colon_density",
              "concrete_abstract_ratio", "adv_verb_ratio", "rhyme_rate"]
+    RATE_FEATURES = {"cap_rate", "punct_rate", "rhyme_rate"}  # [0,1] → fit Beta
     print("=" * 100)
     print("RAW MEAN / VARIANCE PER ERA")
     print("=" * 100)
@@ -203,8 +287,8 @@ def main():
             if len(vals):
                 print(f"    {era_label:<12s}  mean={vals.mean():.4f}  var={vals.var():.5f}  n={len(vals)}")
 
-    # ── plot log1p-transformed distributions ─────────────────────────────
-    feat_titles = {
+    # ── plot distributions (raw and log1p), fitted and unfitted ───────────
+    feat_titles_log = {
         "cap_rate": "Line-Initial Capitalisation Rate  [log1p]",
         "punct_rate": "End-of-Line Punctuation Rate  [log1p]",
         "colon_density": "Colon/Semicolon per 100 Words  [log1p]",
@@ -212,43 +296,86 @@ def main():
         "adv_verb_ratio": "Adverb-to-Verb Ratio  [log1p]",
         "rhyme_rate": "Rhyme Rate  [log1p]",
     }
+    feat_titles_raw = {
+        "cap_rate": "Line-Initial Capitalisation Rate  [raw]",
+        "punct_rate": "End-of-Line Punctuation Rate  [raw]",
+        "colon_density": "Colon/Semicolon per 100 Words  [raw]",
+        "concrete_abstract_ratio": "Concrete-to-Abstract Ratio  [raw]",
+        "adv_verb_ratio": "Adverb-to-Verb Ratio  [raw]",
+        "rhyme_rate": "Rhyme Rate  [raw]",
+    }
 
-    for feat in feats:
-        fig, axes = plt.subplots(1, 4, figsize=(18, 4), sharey=False)
-        fig.suptitle(feat_titles[feat], fontsize=13, fontweight="bold")
+    for out_dir, use_modern in [(PLOT_DIR_DIST_TRY, False), (PLOT_DIR_DIST_TRY_2, True)]:
+        for feat in feats:
+            for use_log in (True, False):
+                titles = feat_titles_log if use_log else feat_titles_raw
+                for with_fit in (True, False):
+                    fig, axes = plt.subplots(1, 4, figsize=(18, 4), sharey=False)
+                    suffix = "fitted" if with_fit else "unfitted"
+                    scale = "log" if use_log else "raw"
+                    fig.suptitle(titles[feat] + f"  ({suffix})", fontsize=13, fontweight="bold")
 
-        for ax, (era_label, _, _) in zip(axes, ERA_BINS):
-            raw = results.loc[
-                results[feat].notna() & (results["era"] == era_label), feat
-            ].values
-            if len(raw) == 0:
-                ax.set_title(era_label)
-                continue
+                    for ax, (era_label, _, _) in zip(axes, ERA_BINS):
+                        raw_vals = results.loc[
+                            results[feat].notna() & (results["era"] == era_label), feat
+                        ].values
+                        if len(raw_vals) == 0:
+                            ax.set_title(era_label)
+                            continue
 
-            vals = np.log1p(raw)
-            m, v = vals.mean(), vals.var()
+                        vals = np.log1p(raw_vals) if use_log else raw_vals.astype(float)
+                        m, v = vals.mean(), vals.var()
 
-            ax.hist(vals, bins=25, density=True, alpha=0.6, edgecolor="black", label="data")
+                        ax.hist(vals, bins=25, density=True, alpha=0.6, edgecolor="black", label="data")
 
-            # fit Normal to the log-transformed values
-            if v > 0:
-                try:
-                    mu, sigma = stats.norm.fit(vals)
-                    x = np.linspace(vals.min() - 0.2, vals.max() + 0.2, 200)
-                    ax.plot(x, stats.norm.pdf(x, mu, sigma), "r-", lw=2,
-                            label=f"N({mu:.2f},{sigma:.2f})")
-                except Exception:
-                    pass
+                        if with_fit and v > 0:
+                            try:
+                                if not use_log and feat in RATE_FEATURES:
+                                    if use_modern:
+                                        zoib = fit_zoib(raw_vals)
+                                        if zoib is not None:
+                                            p0, p1, a, b = zoib
+                                            x_plot = np.linspace(max(1e-6, vals.min() - 0.02), min(1 - 1e-6, vals.max() + 0.02), 200)
+                                            p_mid = 1 - p0 - p1
+                                            ax.plot(x_plot, p_mid * stats.beta.pdf(x_plot, a, b), "r-", lw=2,
+                                                    label=f"ZOIB p0={p0:.2f} p1={p1:.2f} Beta({a:.2f},{b:.2f})")
+                                    else:
+                                        r = np.clip(raw_vals, 1e-6, 1 - 1e-6)
+                                        a, b, _loc, _scale = stats.beta.fit(r, floc=0, fscale=1)
+                                        x_plot = np.linspace(max(1e-6, vals.min() - 0.02), min(1 - 1e-6, vals.max() + 0.02), 200)
+                                        ax.plot(x_plot, stats.beta.pdf(x_plot, a, b), "r-", lw=2,
+                                                label=f"Beta({a:.2f},{b:.2f})")
+                                elif not use_log:
+                                    if use_modern:
+                                        zig = fit_zero_inflated_gamma(raw_vals)
+                                        if zig is not None:
+                                            p0, shape, scale_param = zig
+                                            x_plot = np.linspace(max(1e-6, vals.min()), vals.max() + 0.1 * (vals.max() - vals.min() + 0.1), 200)
+                                            ax.plot(x_plot, (1 - p0) * stats.gamma.pdf(x_plot, shape, loc=0, scale=scale_param), "r-", lw=2,
+                                                    label=f"ZI-Gamma p0={p0:.2f} k={shape:.2f} scale={scale_param:.2f}")
+                                    else:
+                                        r = np.maximum(raw_vals.astype(float), 1e-6)
+                                        shape, loc, scale_param = stats.gamma.fit(r, floc=0)
+                                        x_plot = np.linspace(max(1e-6, vals.min()), vals.max() + 0.1 * (vals.max() - vals.min() + 0.1), 200)
+                                        ax.plot(x_plot, stats.gamma.pdf(x_plot, shape, loc=0, scale=scale_param), "r-", lw=2,
+                                                label=f"Gamma(k={shape:.2f}, scale={scale_param:.2f})")
+                                else:
+                                    mu, sigma = stats.norm.fit(vals)
+                                    x_plot = np.linspace(vals.min() - 0.2, vals.max() + 0.2, 200)
+                                    ax.plot(x_plot, stats.norm.pdf(x_plot, mu, sigma), "r-", lw=2,
+                                            label=f"N({mu:.2f},{sigma:.2f})")
+                            except Exception:
+                                pass
 
-            ax.set_title(f"{era_label}\nmean={m:.3f}, var={v:.4f}", fontsize=10)
-            ax.set_xlabel("log1p(value)")
-            ax.legend(fontsize=8)
+                        ax.set_title(f"{era_label}\nmean={m:.3f}, var={v:.4f}", fontsize=10)
+                        ax.set_xlabel("log1p(value)" if use_log else "value")
+                        ax.legend(fontsize=8)
 
-        plt.tight_layout()
-        out = f"{PLOT_DIR}/{feat}_log_distribution.png"
-        plt.savefig(out, dpi=150)
-        print(f"Saved: {out}")
-        plt.close()
+                    plt.tight_layout()
+                    out = f"{out_dir}/{feat}_{scale}_{suffix}.png"
+                    plt.savefig(out, dpi=150)
+                    print(f"Saved: {out}")
+                    plt.close()
 
 
 if __name__ == "__main__":
