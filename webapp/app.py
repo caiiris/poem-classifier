@@ -379,15 +379,13 @@ def analyze():
     rf_probs = {c: float(rf_probs_arr[list(rf_classes).index(c)]) for c in ERA_ORDER}
     rf_pred  = max(rf_probs, key=rf_probs.get)
 
-    # BH-NB explanations — get BH-NB's own prediction first to detect conflicts
-    bnb_own = BUNDLE["bnb"].explain(feat_clean, force_era_means=BUNDLE["era_means"])
-    bnb_pred = bnb_own["predicted"]
-    models_agree = (bnb_pred == rf_pred)
+    # "Mixed signals" = RF itself is not confident in its top prediction
+    rf_confidence = rf_probs[rf_pred]
+    models_agree = rf_confidence >= 0.55
 
-    # Generate reasons anchored to RF's predicted era
+    # BH-NB explanations anchored to RF's predicted era
     bnb_result = BUNDLE["bnb"].explain(feat_clean, force_era=rf_pred,
                                        force_era_means=BUNDLE["era_means"])
-
     # Feature display: value + context vs global mean across all eras
     era_means = BUNDLE["era_means"]
     feature_display = []
@@ -418,14 +416,13 @@ def analyze():
         "era":          rf_pred,
         "era_meta":     ERA_META[rf_pred],
         "models_agree": models_agree,
-        "bnb_pred":     bnb_pred,
         "probabilities": [
             {"era": e, "label": ERA_META[e]["label"],
              "years": ERA_META[e]["years"],
              "prob": round(rf_probs[e], 4)}
             for e in ERA_ORDER
         ],
-        "top_reasons": bnb_result["top_reasons"] if models_agree else [],
+        "top_reasons": bnb_result["top_reasons"],
         "features":    feature_display,
     })
 

@@ -81,18 +81,16 @@
       probBars.appendChild(row);
     });
 
-    // Mixed-signals banner and reasons
+    // Mixed-signals banner (shown when RF confidence is low)
+    mixedSignals.hidden = !!data.models_agree;
+
+    // Reasons always shown
     reasonsList.innerHTML = "";
-    if (!data.models_agree) {
-      mixedSignals.hidden = false;
-    } else {
-      mixedSignals.hidden = true;
-      (data.top_reasons || []).forEach(function (reason) {
-        const li = document.createElement("li");
-        li.innerHTML = '<span class="reason-bullet"></span><span>' + esc(reason) + "</span>";
-        reasonsList.appendChild(li);
-      });
-    }
+    (data.top_reasons || []).forEach(function (reason) {
+      const li = document.createElement("li");
+      li.innerHTML = '<span class="reason-bullet"></span><span>' + esc(reason) + "</span>";
+      reasonsList.appendChild(li);
+    });
 
     // Reset feedback dropdown
     correctEra.value = "";
