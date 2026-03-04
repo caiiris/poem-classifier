@@ -10,14 +10,17 @@
   const loadingEl    = document.getElementById("loading");
 
   // result sub-elements
-  const eraHeader  = document.getElementById("era-header");
-  const eraBadge   = document.getElementById("era-badge");
-  const eraName    = document.getElementById("era-name");
-  const eraYears   = document.getElementById("era-years");
-  const eraDesc    = document.getElementById("era-desc");
-  const probBars   = document.getElementById("prob-bars");
-  const reasonsList= document.getElementById("reasons-list");
+  const eraHeader    = document.getElementById("era-header");
+  const eraBadge     = document.getElementById("era-badge");
+  const eraName      = document.getElementById("era-name");
+  const eraYears     = document.getElementById("era-years");
+  const eraDesc      = document.getElementById("era-desc");
+  const probBars     = document.getElementById("prob-bars");
+  const reasonsList  = document.getElementById("reasons-list");
+  const mixedSignals = document.getElementById("mixed-signals");
   const featureTable = document.getElementById("feature-table").querySelector("tbody");
+  const correctEra   = document.getElementById("correct-era");
+  const feedbackThanks = document.getElementById("feedback-thanks");
 
   function esc(text) {
     const d = document.createElement("div");
@@ -78,13 +81,22 @@
       probBars.appendChild(row);
     });
 
-    // Top reasons
+    // Mixed-signals banner and reasons
     reasonsList.innerHTML = "";
-    (data.top_reasons || []).forEach(function (reason) {
-      const li = document.createElement("li");
-      li.innerHTML = '<span class="reason-bullet"></span><span>' + esc(reason) + "</span>";
-      reasonsList.appendChild(li);
-    });
+    if (!data.models_agree) {
+      mixedSignals.hidden = false;
+    } else {
+      mixedSignals.hidden = true;
+      (data.top_reasons || []).forEach(function (reason) {
+        const li = document.createElement("li");
+        li.innerHTML = '<span class="reason-bullet"></span><span>' + esc(reason) + "</span>";
+        reasonsList.appendChild(li);
+      });
+    }
+
+    // Reset feedback dropdown
+    correctEra.value = "";
+    feedbackThanks.hidden = true;
 
     // Feature table
     featureTable.innerHTML = "";
@@ -137,5 +149,9 @@
 
   poemInput.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); analyzeBtn.click(); }
+  });
+
+  correctEra.addEventListener("change", function () {
+    if (this.value) { feedbackThanks.hidden = false; }
   });
 })();

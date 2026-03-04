@@ -279,6 +279,67 @@ body {
 .chip-none    { background: #f0ece5; color: #888; }
 .chip-present { background: #fff3cd; color: #664d00; }
 
+/* ── Disclaimer ── */
+.disclaimer {
+  max-width: 680px;
+  margin: 0 auto 1.5rem;
+  padding: 0.6rem 1rem;
+  background: #f0f4ff;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── Mixed-signals banner ── */
+.mixed-signals {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #7a5500;
+  margin-bottom: 0.5rem;
+}
+.mixed-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+}
+
+/* ── Feedback block ── */
+.feedback-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.feedback-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.feedback-select {
+  width: 100%;
+  max-width: 360px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d0d7e3;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+.feedback-select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.feedback-thanks {
+  font-size: 0.85rem;
+  color: #2e7d32;
+  font-style: italic;
+}
+
 /* ── Footer ── */
 .footer {
   display: flex;

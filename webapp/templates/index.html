@@ -16,6 +16,10 @@
       <p class="tagline">Paste a poem and discover its closest time period.</p>
     </header>
 
+    <div class="disclaimer">
+      Results are probabilistic. Era prediction uses a Random Forest classifier; feature explanations use a Bayesian Hurdle model.
+    </div>
+
     <section class="input-section">
       <label for="poem-input">Your poem</label>
       <textarea
@@ -57,9 +61,14 @@
         <div id="prob-bars"></div>
       </div>
 
-      <!-- Top reasons -->
-      <div class="result-block">
+      <!-- Top reasons / conflict notice -->
+      <div class="result-block" id="reasons-block">
         <h3 class="block-title">Why we think so</h3>
+        <div class="mixed-signals" id="mixed-signals" hidden>
+          <span class="mixed-icon">⟺</span>
+          This poem has mixed signals across eras — our two models disagree on the classification.
+          The feature breakdown below still shows measured values.
+        </div>
         <ul class="reasons-list" id="reasons-list"></ul>
       </div>
 
@@ -69,6 +78,18 @@
         <table class="feature-table" id="feature-table">
           <tbody></tbody>
         </table>
+      </div>
+
+      <!-- User feedback -->
+      <div class="result-block feedback-block">
+        <label class="feedback-label" for="correct-era">Think we got it wrong?</label>
+        <select id="correct-era" class="feedback-select">
+          <option value="">— Select the correct era —</option>
+          <option value="Pre-1800">Pre-Romantic / Early Modern (before 1800)</option>
+          <option value="1800-1900">Romantic / Victorian (1800–1900)</option>
+          <option value="Post-1900">Modernist &amp; Contemporary (after 1900)</option>
+        </select>
+        <p class="feedback-thanks" id="feedback-thanks" hidden>Thanks for the feedback!</p>
       </div>
 
     </section>
