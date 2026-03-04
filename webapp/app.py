@@ -388,22 +388,19 @@ def analyze():
     bnb_result = BUNDLE["bnb"].explain(feat_clean, force_era=rf_pred,
                                        force_era_means=BUNDLE["era_means"])
 
-    # Feature display: value + context vs era means
+    # Feature display: value + context vs global mean across all eras
     era_means = BUNDLE["era_means"]
     feature_display = []
     for key, meta in FEATURE_META.items():
         val = feat_clean.get(key, 0.0)
         disp_val = round(val * meta["scale"], 2)
-        predicted_mean  = era_means[rf_pred].get(key, 0.0)
-        # find highest-mean era for this feature
-        all_means = {e: era_means[e].get(key, 0.0) for e in ERA_ORDER}
-        max_era = max(all_means, key=all_means.get)
-        # direction: higher than predicted mean or lower?
-        if predicted_mean > 0:
-            ratio = val / predicted_mean
-            if ratio > 1.4:
+        # Global mean = average of per-era means (macro average)
+        global_mean = float(np.mean([era_means[e].get(key, 0.0) for e in ERA_ORDER]))
+        if global_mean > 0:
+            ratio = val / global_mean
+            if ratio > 1.25:
                 context = "high"
-            elif ratio < 0.6:
+            elif ratio < 0.75:
                 context = "low"
             else:
                 context = "moderate"
