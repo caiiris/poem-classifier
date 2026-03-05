@@ -1,6 +1,7 @@
 # poem-classifier
 CS109 Final Project
 
+Try out the classifier for yourself: https://poem-classifier-caiiris.onrender.com/
 
 Data Sources & Acknowledgments
 This project relies on a custom-built, enriched dataset. The data pipeline was made possible by the following sources:
