@@ -16,10 +16,6 @@
       <p class="tagline">Paste a poem and discover its closest time period.</p>
     </header>
 
-    <div class="disclaimer">
-      Results are probabilistic. Era prediction uses a Random Forest classifier; feature explanations use a Bayesian Hurdle model.
-    </div>
-
     <section class="input-section">
       <label for="poem-input">Your poem</label>
       <textarea
@@ -92,6 +88,9 @@
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
+<div class="disclaimer">
+  Results are probabilistic. Era prediction uses an XGBoost classifier; feature explanations use a Bayesian Hurdle model.
+</div>
 <footer class="footer">
   <span>© 2026 Iris Cai</span>
   <span class="footer-sep">·</span>

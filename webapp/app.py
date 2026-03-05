@@ -88,8 +88,8 @@ def load_cmu():
 # ── Model ──────────────────────────────────────────────────────────────────────
 
 from scipy import stats as scipy_stats
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from xgboost import XGBClassifier
 
 
 class BayesianHurdleNB:
@@ -296,15 +296,17 @@ def train_or_load_models(train_csv: str, pkl_path: str):
     bnb = BayesianHurdleNB(uniform_prior=True)
     bnb.fit(df)
 
-    # RF
+    # XGBoost
     X = df[FEATURE_COLS_RF].fillna(0).values
     y = df["era"].values
     le = LabelEncoder(); le.fit(ERA_ORDER); y_enc = le.transform(y)
     class_counts = np.bincount(y_enc)
     sw = np.array([len(y_enc) / (len(ERA_ORDER) * class_counts[yy]) for yy in y_enc])
-    rf = RandomForestClassifier(n_estimators=300, class_weight="balanced",
-                                random_state=42, n_jobs=-1)
-    rf.fit(X, y)
+    xgb = XGBClassifier(n_estimators=400, max_depth=6, learning_rate=0.05,
+                        subsample=0.8, colsample_bytree=0.8,
+                        eval_metric="mlogloss", random_state=42,
+                        n_jobs=-1, verbosity=0)
+    xgb.fit(X, y_enc, sample_weight=sw)
 
     scaler = StandardScaler()
     scaler.fit(X)
@@ -318,7 +320,7 @@ def train_or_load_models(train_csv: str, pkl_path: str):
                            "concrete_abstract_ratio","adv_verb_ratio",
                            "rhyme_rate","archaic_density"]}
 
-    bundle = {"bnb": bnb, "rf": rf, "scaler": scaler, "le": le, "era_means": era_means}
+    bundle = {"bnb": bnb, "xgb": xgb, "scaler": scaler, "le": le, "era_means": era_means}
     with open(pkl_path, "wb") as f:
         pickle.dump(bundle, f)
     log.info("Models saved to %s", pkl_path)
@@ -371,12 +373,13 @@ def analyze():
     feat_clean = {k: (0.0 if np.isnan(v) else v) for k, v in feat.items()}
     hurdle_row = build_hurdle_row(feat_clean)
 
-    # RF prediction
-    rf    = BUNDLE["rf"]
+    # XGBoost prediction
+    xgb = BUNDLE["xgb"]
+    le  = BUNDLE["le"]
     X_row = np.array([[hurdle_row.get(c, 0.0) for c in FEATURE_COLS_RF]])
-    rf_probs_arr = rf.predict_proba(X_row)[0]
-    rf_classes   = rf.classes_
-    rf_probs = {c: float(rf_probs_arr[list(rf_classes).index(c)]) for c in ERA_ORDER}
+    xgb_probs_arr = xgb.predict_proba(X_row)[0]
+    # xgb columns are in le.classes_ order (integer-encoded); map back to era strings
+    rf_probs = {era: float(xgb_probs_arr[le.transform([era])[0]]) for era in ERA_ORDER}
     rf_pred  = max(rf_probs, key=rf_probs.get)
 
     # BH-NB explanations anchored to RF's predicted era
