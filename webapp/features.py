@@ -1,6 +1,6 @@
 """
 Feature extraction for the poetry era classifier webapp.
-Computes all 7 stylistic features from raw poem text.
+Computes all 8 stylistic features from raw poem text.
 """
 
 import re
@@ -150,21 +150,35 @@ def archaic_density(text: str) -> float:
     return count / len(words) * 100
 
 
+# ── Feature 8: imageability ───────────────────────────────────────────────────
+
+def imageability(text: str, img_lex: dict[str, float]) -> float:
+    """Mean imageability of matched words (Glasgow Norms, scale 1–7).
+    Returns NaN if fewer than 5 words are matched."""
+    words = re.findall(r"[a-z']+", text.lower())
+    vals  = [img_lex[w] for w in words if w in img_lex]
+    return float(np.mean(vals)) if len(vals) >= 5 else float("nan")
+
+
 # ── Master compute function ────────────────────────────────────────────────────
 
-def compute_features(text: str, lex: dict, cmu: dict, pos_tag_fn) -> dict:
+def compute_features(text: str, lex: dict, cmu: dict, pos_tag_fn,
+                     img_lex: dict | None = None) -> dict:
     """
-    Compute all 7 features from raw poem text.
+    Compute all 8 features from raw poem text.
     Returns a dict with float values (may contain NaN for some features
     if the poem is too short).
+    img_lex: Glasgow Norms imageability dict {word: score}. If None,
+             imageability is returned as NaN.
     """
     lines = get_lines(text)
     return {
-        "cap_rate":               cap_rate(lines),
-        "punct_rate":             punct_rate(lines),
-        "colon_density":          colon_density(text),
+        "cap_rate":                cap_rate(lines),
+        "punct_rate":              punct_rate(lines),
+        "colon_density":           colon_density(text),
         "concrete_abstract_ratio": concrete_abstract_ratio(text, lex),
-        "adv_verb_ratio":         adv_verb_ratio(text, pos_tag_fn),
-        "rhyme_rate":             rhyme_rate(lines, cmu),
-        "archaic_density":        archaic_density(text),
+        "adv_verb_ratio":          adv_verb_ratio(text, pos_tag_fn),
+        "rhyme_rate":              rhyme_rate(lines, cmu),
+        "archaic_density":         archaic_density(text),
+        "imageability":            imageability(text, img_lex) if img_lex is not None else float("nan"),
     }

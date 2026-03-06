@@ -14,6 +14,7 @@ from flask import Flask, render_template, request, jsonify
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONC_PATH  = os.path.join(BASE_DIR, "data", "concreteness_ratings.csv")
+GLASGOW_PATH = os.path.join(BASE_DIR, "data", "glasgow_norms.csv")
 TRAIN_CSV  = os.path.join(BASE_DIR, "data", "splits", "3class_train.csv")
 MODEL_PKL  = os.path.join(BASE_DIR, "data", "model_3class.pkl")
 
@@ -50,6 +51,7 @@ FEATURE_META = {
     "adv_verb_ratio":          {"label": "Adverb-to-verb ratio",      "unit": "",        "scale": 1},
     "rhyme_rate":              {"label": "Rhyme rate",                "unit": "%",       "scale": 100},
     "archaic_density":         {"label": "Archaic word density",      "unit": "/100 words",  "scale": 1},
+    "imageability":            {"label": "Imageability",               "unit": "/ 7",         "scale": 1},
 }
 
 logging.basicConfig(level=logging.INFO)
@@ -83,6 +85,12 @@ def load_cmu():
     nltk.download("cmudict", quiet=True)
     from nltk.corpus import cmudict
     return cmudict.dict()
+
+
+def load_glasgow(path: str) -> dict:
+    import pandas as pd
+    df = pd.read_csv(path)
+    return dict(zip(df["word"], df["imageability"]))
 
 
 # ── Model ──────────────────────────────────────────────────────────────────────
@@ -262,7 +270,7 @@ class BayesianHurdleNB:
 FEATURE_COLS_RF = [
     "cap_rate", "punct_rate", "colon_density",
     "concrete_abstract_ratio", "adv_verb_ratio", "rhyme_rate",
-    "archaic_density",
+    "archaic_density", "imageability",
     "uses_rhyme", "uses_colons", "caps_all", "high_punct", "uses_archaism",
 ]
 
@@ -292,6 +300,23 @@ def train_or_load_models(train_csv: str, pkl_path: str):
     if "era_3class" in df.columns:
         df["era"] = df["era_3class"]
 
+    # Add imageability to training data (fill missing with era mean)
+    import re as _re
+    poem_src = os.path.join(BASE_DIR, "data", "PoetryFoundationData_with_year.csv")
+    if os.path.exists(poem_src):
+        poems = pd.read_csv(poem_src)[["Title", "Poet", "Poem"]]
+        def _img(text):
+            ws = _re.findall(r"[a-z']+", str(text).lower())
+            vs = [IMG_LEX[w] for w in ws if w in IMG_LEX]
+            return float(np.mean(vs)) if len(vs) >= 5 else float("nan")
+        poems["imageability"] = poems["Poem"].apply(_img)
+        lookup = poems.set_index(["Title", "Poet"])["imageability"].to_dict()
+        df["imageability"] = df.apply(lambda r: lookup.get((r["Title"], r["Poet"]), float("nan")), axis=1)
+    # Fill any remaining NaN with era mean
+    for era in ERA_ORDER:
+        m = df.loc[df["era"] == era, "imageability"].mean()
+        df.loc[(df["era"] == era) & df["imageability"].isna(), "imageability"] = m
+
     # BH-NB
     bnb = BayesianHurdleNB(uniform_prior=True)
     bnb.fit(df)
@@ -318,7 +343,7 @@ def train_or_load_models(train_csv: str, pkl_path: str):
         era_means[era] = {f: float(sub[f].mean()) for f in
                           ["cap_rate","punct_rate","colon_density",
                            "concrete_abstract_ratio","adv_verb_ratio",
-                           "rhyme_rate","archaic_density"]}
+                           "rhyme_rate","archaic_density","imageability"]}
 
     bundle = {"bnb": bnb, "xgb": xgb, "scaler": scaler, "le": le, "era_means": era_means}
     with open(pkl_path, "wb") as f:
@@ -333,6 +358,7 @@ app = Flask(__name__)
 
 log.info("Loading NLP resources…")
 LEX     = load_concreteness(CONC_PATH)
+IMG_LEX = load_glasgow(GLASGOW_PATH)
 POS_TAG = load_nltk_pos()
 CMU     = load_cmu()
 BUNDLE  = train_or_load_models(TRAIN_CSV, MODEL_PKL)
@@ -364,7 +390,7 @@ def analyze():
         return jsonify({"error": "Paste a longer poem (at least a few lines) for a meaningful result."}), 400
 
     try:
-        feat = compute_features(poem, LEX, CMU, POS_TAG)
+        feat = compute_features(poem, LEX, CMU, POS_TAG, img_lex=IMG_LEX)
     except Exception as e:
         log.exception("Feature error")
         return jsonify({"error": f"Feature extraction failed: {e}"}), 500
