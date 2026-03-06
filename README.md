@@ -10,6 +10,8 @@ Base Corpus: The raw poetic text and author names were sourced from the Poetry F
 
 Historical Metadata: Publication eras and temporal metadata were algorithmically retrieved by scraping Poetry Foundation and Wikipedia.
 
-Lexical Abstraction Index: The concrete-to-abstract ratio feature utilizes the concreteness ratings from: Brysbaert, M., Warriner, A. B., & Kuperman, V. (2014). Concreteness ratings for 40 thousand generally known English word lemmas. Behavior Research Methods.
+Psycholinguistic Word Ratings: The lexical features (concreteness and imageability) utilize normative psycholinguistic ratings from:
+- Brysbaert, M., Warriner, A. B., & Kuperman, V. (2014). Concreteness ratings for 40 thousand generally known English word lemmas. Behavior Research Methods.
+- Scott, G. G., Keitel, A., Becirspahic, M., Yao, B., & Sereno, S. C. (2019). The Glasgow Norms: Ratings of 5,500 words on nine scales. Behavior Research Methods.
 
 NLP Processing: Part-of-Speech tagging and tokenization were performed using the Natural Language Toolkit (NLTK).
